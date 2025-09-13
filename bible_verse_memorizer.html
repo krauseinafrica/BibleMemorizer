@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bible Verse Memorization Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.firebase = {
+            initializeApp, getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken,
+            getFirestore, collection, addDoc, serverTimestamp, setLogLevel
+        };
+    </script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .feedback-icon { transform: scale(0); transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .feedback-icon.active { transform: scale(1); }
+        .mic-listening svg { color: #ef4444; } /* red-500 */
+        .mic-listening { background-color: #fee2e2; } /* red-100 */
+        #admin-modal-overlay, #user-modal-overlay { transition: opacity 0.2s ease-in-out; }
+        #admin-modal, #user-modal { transition: transform 0.2s ease-in-out, opacity 0.2s ease-in-out; }
+        .diff strong {
+            font-weight: 700;
+            color: #b91c1c; /* red-800 */
+            background-color: #fee2e2; /* red-100 */
+            padding: 1px 3px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen p-4">
+
+    <div id="main-content" class="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6 md:p-8 space-y-6 hidden">
+        <div class="flex justify-between items-center">
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-800">Memorization Tool</h1>
+            <button id="admin-btn" class="text-gray-500 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 rounded-full p-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            </button>
+        </div>
+
+        <div class="text-center bg-gray-50 rounded-xl p-4 border">
+            <h2 class="text-sm font-medium text-gray-500">Recite the following verse:</h2>
+            <p id="verse-reference" class="text-lg font-bold text-indigo-600">Loading...</p>
+        </div>
+
+        <div class="relative">
+             <button id="mic-btn" class="absolute top-2 right-2 p-2 rounded-full hover:bg-gray-200 focus:outline-none focus:bg-gray-200 transition-colors">
+                <svg class="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+            </button>
+            <textarea id="user-input" rows="5" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="Type or use the mic to recite..."></textarea>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <button id="check-btn" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 shadow-sm">Check My Verse</button>
+            <button id="action-btn" class="w-full bg-gray-200 text-gray-700 font-bold py-3 px-4 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition duration-150 hidden">Show Answer</button>
+            <button id="next-btn" class="w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-700 transition duration-150 shadow-sm">Next Verse</button>
+        </div>
+        <div id="feedback-area" class="min-h-24 flex flex-col items-center justify-center text-center space-y-2"></div>
+        
+        <div id="correct-answer-container" class="hidden mt-4">
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                <h3 class="font-bold text-green-800">Correct Answer:</h3>
+                <p id="correct-answer-text" class="text-green-700 mt-1"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Name Modal -->
+    <div id="user-modal-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex justify-center items-center p-4 z-50 opacity-0">
+        <div id="user-modal" class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm transform scale-95 opacity-0">
+            <h2 class="text-2xl font-bold text-center mb-4">Welcome!</h2>
+            <p class="text-center text-gray-600 mb-6">Please enter your name to begin.</p>
+            <input type="text" id="name-input" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500" placeholder="e.g., John Doe">
+            <button id="start-btn" class="mt-6 w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Start Memorizing</button>
+        </div>
+    </div>
+
+    <!-- Admin Panel Modal -->
+    <div id="admin-modal-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex justify-center items-center p-4 z-50 hidden opacity-0">
+         <div id="admin-modal" class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md transform scale-95 opacity-0">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Admin Panel</h2>
+                <button id="close-admin-btn" class="text-gray-400 hover:text-gray-600 rounded-full p-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <label for="verse-selector" class="block text-sm font-medium text-gray-700">Select a verse for the student to recite:</label>
+                <select id="verse-selector" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                    <!-- Options will be populated by JS -->
+                </select>
+                <button id="set-verse-btn" class="mt-4 w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Set Verse</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // --- BIBLE VERSES (NIV) ---
+        const bibleVerses = [
+            { reference: "Proverbs 3:5-6", text: "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight." },
+            { reference: "Philippians 4:13", text: "I can do all this through him who gives me strength." },
+            { reference: "John 3:16", text: "For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life." },
+            { reference: "Romans 8:28", text: "And we know that in all things God works for the good of those who love him, who have been called according to his purpose." },
+            { reference: "Jeremiah 29:11", text: "For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future." },
+            { reference: "Isaiah 41:10", text: "So do not fear, for I am with you; do not be dismayed, for I am your God. I will strengthen you and help you; I will uphold you with my righteous right hand." },
+            { reference: "Psalm 46:1", text: "God is our refuge and strength, an ever-present help in trouble." },
+            { reference: "Galatians 5:22-23", text: "But the fruit of the Spirit is love, joy, peace, forbearance, kindness, goodness, faithfulness, gentleness and self-control. Against such things there is no law." },
+            { reference: "Hebrews 11:1", text: "Now faith is confidence in what we hope for and assurance about what we do not see." },
+            { reference: "2 Timothy 3:16", text: "All Scripture is God-breathed and is useful for teaching, rebuking, correcting and training in righteousness," }
+        ];
+
+        // --- DOM ELEMENTS ---
+        const mainContent = document.getElementById('main-content');
+        const verseReferenceEl = document.getElementById('verse-reference');
+        const userInputEl = document.getElementById('user-input');
+        const checkBtn = document.getElementById('check-btn');
+        const actionBtn = document.getElementById('action-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const feedbackAreaEl = document.getElementById('feedback-area');
+        const correctAnswerContainerEl = document.getElementById('correct-answer-container');
+        const correctAnswerTextEl = document.getElementById('correct-answer-text');
+        const micBtn = document.getElementById('mic-btn');
+        // User Modal Elements
+        const userModalOverlay = document.getElementById('user-modal-overlay');
+        const userModal = document.getElementById('user-modal');
+        const nameInput = document.getElementById('name-input');
+        const startBtn = document.getElementById('start-btn');
+        // Admin Modal Elements
+        const adminBtn = document.getElementById('admin-btn');
+        const adminModalOverlay = document.getElementById('admin-modal-overlay');
+        const adminModal = document.getElementById('admin-modal');
+        const closeAdminBtn = document.getElementById('close-admin-btn');
+        const verseSelector = document.getElementById('verse-selector');
+        const setVerseBtn = document.getElementById('set-verse-btn');
+
+        // --- STATE VARIABLES ---
+        let currentVerseData = null;
+        let db, auth;
+        let currentUser = { id: null, name: 'Anonymous' };
+        let attemptCount = 0;
+        let lastAttemptDiffHtml = null;
+
+        // --- FIREBASE SETUP ---
+        async function initializeFirebase() {
+            try {
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                const app = window.firebase.initializeApp(firebaseConfig);
+                db = window.firebase.getFirestore(app);
+                auth = window.firebase.getAuth(app);
+                window.firebase.setLogLevel('debug');
+
+                window.firebase.onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        console.log("User is signed in:", user.uid);
+                        currentUser.id = user.uid;
+                    } else {
+                        console.log("No user signed in, signing in anonymously.");
+                        try {
+                             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await window.firebase.signInWithCustomToken(auth, __initial_auth_token);
+                            } else {
+                                await window.firebase.signInAnonymously(auth);
+                            }
+                        } catch (error) {
+                            console.error("Anonymous sign-in failed:", error);
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase initialization failed:", error);
+            }
+        }
+        
+        // --- DATA SAVING ---
+        async function saveRecitationResult(result) {
+            if (!db || !currentUser.id) {
+                console.error("Firestore not initialized or user not logged in.");
+                return;
+            }
+            try {
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const recitationsCol = window.firebase.collection(db, `artifacts/${appId}/public/data/recitations`);
+                await window.firebase.addDoc(recitationsCol, { ...result, timestamp: window.firebase.serverTimestamp() });
+                console.log("Recitation saved successfully!");
+            } catch (error) {
+                console.error("Error saving recitation: ", error);
+            }
+        }
+
+        // --- CORE LOGIC ---
+        
+        // More lenient scoring using Levenshtein distance for fuzzy matching
+        const fuzzyCompare = (word1, word2) => {
+            const len1 = word1.length;
+            const len2 = word2.length;
+            const d = [];
+            for (let i = 0; i <= len1; i++) {
+                d[i] = [i];
+            }
+            for (let j = 0; j <= len2; j++) {
+                d[0][j] = j;
+            }
+            for (let i = 1; i <= len1; i++) {
+                for (let j = 1; j <= len2; j++) {
+                    const cost = word1[i - 1] === word2[j - 1] ? 0 : 1;
+                    d[i][j] = Math.min(
+                        d[i - 1][j] + 1,      // deletion
+                        d[i][j - 1] + 1,      // insertion
+                        d[i - 1][j - 1] + cost // substitution
+                    );
+                }
+            }
+            const distance = d[len1][len2];
+            const maxLength = Math.max(len1, len2);
+            return maxLength === 0 ? 1 : (maxLength - distance) / maxLength;
+        };
+
+        const calculateFuzzyScore = (correctWords, userWords) => {
+            let totalScore = 0;
+            const wordCount = Math.max(correctWords.length, userWords.length);
+            
+            for(let i = 0; i < wordCount; i++){
+                const correctWord = correctWords[i] || "";
+                const userWord = userWords[i] || "";
+                totalScore += fuzzyCompare(correctWord, userWord);
+            }
+
+            return correctWords.length > 0 ? totalScore / correctWords.length : 0;
+        };
+        
+        const normalizeString = (str) => {
+            return str.trim().toLowerCase()
+                .replace(/-/g, ' ') 
+                .replace(/[.,\/#!$%\^&\*;:{}=\_`~()”’”"—?]/g, "")
+                .replace(/\s+/g, ' ');
+        };
+        
+        const diffWords = (original, modified) => {
+             // Simple diff for highlighting, not a full-fledged library
+            const originalWords = original.split(/\s+/);
+            const modifiedWords = modified.split(/\s+/);
+            const diff = [];
+            const common = [];
+            
+            const lcs = (a, b) => {
+                const matrix = Array(a.length + 1).fill(null).map(() => Array(b.length + 1).fill(0));
+                for (let i = 1; i <= a.length; i++) {
+                    for (let j = 1; j <= b.length; j++) {
+                        if (a[i - 1] === b[j - 1]) {
+                            matrix[i][j] = 1 + matrix[i - 1][j - 1];
+                        } else {
+                            matrix[i][j] = Math.max(matrix[i - 1][j], matrix[i][j - 1]);
+                        }
+                    }
+                }
+                let i = a.length, j = b.length;
+                const result = [];
+                while (i > 0 && j > 0) {
+                    if (a[i - 1] === b[j - 1]) {
+                        result.unshift(a[i - 1]);
+                        i--; j--;
+                    } else if (matrix[i - 1][j] > matrix[i][j - 1]) {
+                        i--;
+                    } else {
+                        j--;
+                    }
+                }
+                return result;
+            };
+
+            const commonWords = lcs(normalizeString(original).split(' '), normalizeString(modified).split(' '));
+            let commonIndex = 0;
+            
+            normalizeString(original).split(' ').forEach(word => {
+                if(commonWords[commonIndex] === word){
+                    common.push({value: word, removed: false, added: false});
+                    commonIndex++;
+                } else {
+                    common.push({value: word, removed: true, added: false});
+                }
+            });
+
+            return common;
+        }
+
+        function generateHighlightedAnswerHtml(original, modified) {
+            const diff = diffWords(original, modified);
+            let html = '';
+            const originalWordsAndDelimiters = original.split(/([ .,\/#!$%\^&\*;:{}=\_`~()”’”"—?]+)/);
+            let pointer = 0;
+
+            diff.forEach(part => {
+                const wordCount = part.value.trim().split(/\s+/).filter(Boolean).length;
+                let wordsConsumed = 0;
+                let segment = '';
+                
+                while(pointer < originalWordsAndDelimiters.length && wordsConsumed < wordCount) {
+                    const currentPiece = originalWordsAndDelimiters[pointer];
+                    segment += currentPiece;
+                    if (currentPiece.trim() && !/[ .,\/#!$%\^&\*;:{}=\_`~()”’”"—?]+/.test(currentPiece)) {
+                        wordsConsumed++;
+                    }
+                    pointer++;
+                }
+
+                if (part.removed) {
+                    html += `<strong>${segment}</strong>`;
+                } else {
+                    html += segment;
+                }
+            });
+            
+             while(pointer < originalWordsAndDelimiters.length) {
+                html += originalWordsAndDelimiters[pointer];
+                pointer++;
+            }
+
+            return html;
+        }
+
+        function generateDiffHtml(original, modified) {
+            const diff = diffWords(original, modified);
+            let html = '';
+            diff.forEach(part => {
+                const color = part.added ? 'green' : part.removed ? 'red' : 'grey';
+                const tag = part.added ? 'ins' : part.removed ? 'del' : 'span';
+                html += `<${tag} style="color:${color};text-decoration:${part.removed ? 'line-through' : 'none'};">${part.value} </${tag}>`;
+            });
+            return html;
+        }
+
+        function setVerse(verse) {
+            currentVerseData = verse;
+            attemptCount = 0;
+            lastAttemptDiffHtml = null;
+            verseReferenceEl.textContent = currentVerseData.reference;
+            feedbackAreaEl.innerHTML = '';
+            correctAnswerContainerEl.classList.add('hidden');
+            actionBtn.classList.add('hidden');
+            userInputEl.value = '';
+            userInputEl.disabled = false;
+            checkBtn.disabled = false;
+        }
+
+        function loadRandomVerse() {
+            const verse = bibleVerses[Math.floor(Math.random() * bibleVerses.length)];
+            setVerse(verse);
+        }
+
+        function checkVerse() {
+            if (!currentVerseData) return;
+            const correctText = currentVerseData.text;
+            const userText = userInputEl.value;
+
+            if (userText.trim() === '') { displayFeedback('empty'); return; }
+            
+            attemptCount++;
+            const correctWords = normalizeString(correctText).split(' ');
+            const userWords = normalizeString(userText).split(' ');
+            const similarity = calculateFuzzyScore(correctWords, userWords);
+            const score = Math.round(similarity * 100);
+
+            const diffForDb = generateDiffHtml(correctText, userText);
+            const highlightedAnswerForUi = generateHighlightedAnswerHtml(correctText, userText);
+            lastAttemptDiffHtml = highlightedAnswerForUi;
+
+            const result = {
+                studentName: currentUser.name,
+                userId: currentUser.id,
+                verseReference: currentVerseData.reference,
+                recitation: userText,
+                correctAnswer: correctText,
+                diff: diffForDb,
+                score: score,
+                attempts: attemptCount,
+            };
+
+            if (score >= 90) {
+                displayFeedback('correct', score);
+                if (score === 100) {
+                    lastAttemptDiffHtml = null;
+                }
+                userInputEl.disabled = true;
+                checkBtn.disabled = true;
+                configureActionButton('showAnswer');
+                saveRecitationResult(result);
+            } else if (score >= 80 && attemptCount === 1) {
+                displayFeedback('retry', score);
+                configureActionButton('tryAgain');
+            } else {
+                displayFeedback('incorrect', score);
+                userInputEl.disabled = true;
+                checkBtn.disabled = true;
+                configureActionButton('showAnswer');
+                saveRecitationResult(result);
+            }
+        }
+        
+        function displayFeedback(status, score = null) {
+            let icon = '', message = '', colorClass = '', scoreDisplay = '';
+            if (score !== null) {
+                scoreDisplay = `<p class="text-2xl font-bold text-gray-700">Your Score: ${score}%</p>`;
+            }
+
+            correctAnswerContainerEl.classList.add('hidden');
+
+            switch(status) {
+                case 'correct':
+                    icon = `<svg class="w-12 h-12 text-green-500 feedback-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                    message = 'Excellent! You passed.'; colorClass = 'text-green-600'; break;
+                case 'retry':
+                    icon = `<svg class="w-12 h-12 text-yellow-500 feedback-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+                    message = 'So close! Fix your mistake and try again.'; colorClass = 'text-yellow-600'; break;
+                case 'incorrect':
+                    icon = `<svg class="w-12 h-12 text-red-500 feedback-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+                    message = 'Keep trying! Practice makes perfect.'; colorClass = 'text-red-600'; break;
+                case 'empty':
+                    message = 'Please enter the verse before checking.'; colorClass = 'text-gray-500'; break;
+            }
+            feedbackAreaEl.innerHTML = `${icon}${scoreDisplay}<p class="font-medium ${colorClass}">${message}</p>`;
+            const iconEl = feedbackAreaEl.querySelector('.feedback-icon');
+            if (iconEl) setTimeout(() => iconEl.classList.add('active'), 50);
+        }
+
+        function showAnswer() {
+            if (!currentVerseData) return;
+            const isHidden = correctAnswerContainerEl.classList.contains('hidden');
+            
+            if (isHidden) {
+                if (lastAttemptDiffHtml) {
+                    correctAnswerTextEl.innerHTML = `"<span class="diff">${lastAttemptDiffHtml}</span>" — ${currentVerseData.reference}`;
+                } else {
+                    correctAnswerTextEl.textContent = `"${currentVerseData.text}" — ${currentVerseData.reference}`;
+                }
+                correctAnswerContainerEl.classList.remove('hidden');
+            } else {
+                correctAnswerContainerEl.classList.add('hidden');
+            }
+        }
+
+        function handleTryAgain() {
+            userInputEl.value = '';
+            actionBtn.classList.add('hidden');
+            feedbackAreaEl.innerHTML = '';
+            userInputEl.focus();
+            if (recognition && !isListening) {
+                try { recognition.start(); } catch(e) { console.error("Mic already active or error starting:", e); }
+            }
+        }
+
+        function handleAction() {
+            if (actionBtn.dataset.mode === 'showAnswer') {
+                showAnswer();
+            } else if (actionBtn.dataset.mode === 'tryAgain') {
+                handleTryAgain();
+            }
+        }
+
+        function configureActionButton(mode) {
+            actionBtn.classList.remove('hidden');
+            actionBtn.dataset.mode = mode;
+
+            if (mode === 'showAnswer') {
+                actionBtn.textContent = 'Show Answer';
+                actionBtn.className = 'w-full bg-gray-200 text-gray-700 font-bold py-3 px-4 rounded-lg hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition duration-150';
+            } else if (mode === 'tryAgain') {
+                actionBtn.textContent = 'Try Again & Re-record';
+                actionBtn.className = 'w-full bg-yellow-500 text-yellow-900 font-bold py-3 px-4 rounded-lg hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-400 transition duration-150 shadow-sm';
+            }
+        }
+        
+        // --- SPEECH RECOGNITION ---
+        let recognition;
+        let isListening = false;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.onstart = () => {
+                isListening = true;
+                micBtn.classList.add('mic-listening');
+            };
+
+            recognition.onend = () => {
+                isListening = false;
+                micBtn.classList.remove('mic-listening');
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                userInputEl.value = transcript;
+            };
+            
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error:", event.error);
+                isListening = false;
+                micBtn.classList.remove('mic-listening');
+            };
+        } else {
+            console.log("Speech Recognition not supported.");
+            micBtn.disabled = true;
+        }
+
+        // --- MODAL & UI LOGIC ---
+        function showUserModal() {
+            userModalOverlay.classList.remove('hidden');
+            setTimeout(() => {
+                userModalOverlay.classList.remove('opacity-0');
+                userModal.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        }
+
+        function hideUserModal() {
+            userModal.classList.add('scale-95', 'opacity-0');
+            userModalOverlay.classList.add('opacity-0');
+            setTimeout(() => userModalOverlay.classList.add('hidden'), 200);
+        }
+        
+        function handleStart() {
+            const name = nameInput.value.trim();
+            if (name) {
+                currentUser.name = name;
+                hideUserModal();
+                mainContent.classList.remove('hidden');
+                loadRandomVerse();
+            } else {
+                nameInput.focus();
+            }
+        }
+        
+        function populateAdminSelector() {
+            verseSelector.innerHTML = bibleVerses
+                .map((verse, index) => `<option value="${index}">${verse.reference}</option>`)
+                .join('');
+        }
+        
+        function showAdminModal() {
+            adminModalOverlay.classList.remove('hidden');
+            setTimeout(() => {
+                adminModalOverlay.classList.remove('opacity-0');
+                adminModal.classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        }
+
+        function hideAdminModal() {
+            adminModal.classList.add('scale-95', 'opacity-0');
+            adminModalOverlay.classList.add('opacity-0');
+            setTimeout(() => adminModalOverlay.classList.add('hidden'), 200);
+        }
+        
+        // --- EVENT LISTENERS ---
+        checkBtn.addEventListener('click', checkVerse);
+        actionBtn.addEventListener('click', handleAction);
+        nextBtn.addEventListener('click', loadRandomVerse);
+        startBtn.addEventListener('click', handleStart);
+        nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleStart(); });
+        micBtn.addEventListener('click', () => {
+            if (isListening) {
+                recognition.stop();
+            } else {
+                try { recognition.start(); } catch(e) { console.error("Mic error:", e); }
+            }
+        });
+        
+        // Admin listeners
+        adminBtn.addEventListener('click', showAdminModal);
+        closeAdminBtn.addEventListener('click', hideAdminModal);
+        adminModalOverlay.addEventListener('click', (e) => { if(e.target === adminModalOverlay) hideAdminModal(); });
+        setVerseBtn.addEventListener('click', () => {
+            const selectedIndex = verseSelector.value;
+            setVerse(bibleVerses[selectedIndex]);
+            hideAdminModal();
+        });
+
+        // --- INITIALIZATION ---
+        initializeFirebase();
+        showUserModal();
+        populateAdminSelector();
+    });
+</script>
+</body>
+</html>
+
