@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Bible Verse Memorization Tool{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .feedback-icon { transform: scale(0); transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .feedback-icon.active { transform: scale(1); }
+        .mic-listening svg { color: #ef4444; }
+        .mic-listening { background-color: #fee2e2; }
+        .diff strong {
+            font-weight: 700;
+            color: #b91c1c;
+            background-color: #fee2e2;
+            padding: 1px 3px;
+            border-radius: 4px;
+        }
+        .navbar-shadow { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen">
+    {% block navbar %}
+    <nav class="bg-white navbar-shadow">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-bold text-indigo-600">Bible Memorizer</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    {% if current_user.is_authenticated %}
+                        <span class="text-gray-700">Hello, {{ current_user.first_name }}!</span>
+                        {% if current_user.is_teacher() %}
+                            <a href="{{ url_for('admin_dashboard') }}" class="text-indigo-600 hover:text-indigo-800">Dashboard</a>
+                        {% else %}
+                            <a href="{{ url_for('student_dashboard') }}" class="text-indigo-600 hover:text-indigo-800">My Progress</a>
+                        {% endif %}
+                        <a href="{{ url_for('auth.profile') }}" class="text-gray-600 hover:text-gray-800">Profile</a>
+                        <form method="POST" action="{{ url_for('auth.logout') }}" class="inline">
+                            <button type="submit" class="text-red-600 hover:text-red-800">Logout</button>
+                        </form>
+                    {% else %}
+                        <a href="{{ url_for('auth.login') }}" class="text-indigo-600 hover:text-indigo-800">Login</a>
+                        <a href="{{ url_for('auth.register') }}" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700">Register</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% endblock %}
+
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="mb-4">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'danger' if category == 'error' else category }} bg-{{ 'red' if category == 'error' else 'green' if category == 'success' else 'blue' }}-100 border border-{{ 'red' if category == 'error' else 'green' if category == 'success' else 'blue' }}-400 text-{{ 'red' if category == 'error' else 'green' if category == 'success' else 'blue' }}-700 px-4 py-3 rounded mb-4">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
